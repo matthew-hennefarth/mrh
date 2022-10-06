@@ -3,6 +3,8 @@
 from functools import reduce
 import numpy as np
 
+from pyscf import ao2mo
+
 def h_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ncas is None: ncas = mc.ncas
@@ -19,19 +21,35 @@ def h_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     hcas = reduce(np.dot, (mo_cas.conj().T, hcore, mo_cas))
 
     # Should return h_tu (hcas) and 2 sum_i h_ii
+    # interms of active-orbitals
     return hcas, energy_core
 
-def get_linear_pdft_ham(mc, mo_coeff=None, ci=None):
+def eris_for_cas(mc, mo_coeff=None, ncas=None):
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ncas is None: ncas = mc.ncas
+
+    eri = ao2mo.full(mc._eri, mo_coeff)
+    
+
+    print(aeri)
+
+def get_linear_pdft_ham(mc, mo_coeff=None, ci=None, ncas=None, ncore=None):
     if mo_coeff is None:
         mo_coeff = mc.mo_coeff
 
     if ci is None:
         ci = mc.ci
 
-    hcas, energy_core = h_for_cas(mc, mo_coeff=mo_coeff)
+    if ncas is None:
+        ncas = mc.ncas
 
-    print(hcas)
-    print(energy_core)
+    if ncore is None:
+        ncore = mc.ncore
+
+    hcas, energy_core = h_for_cas(mc, mo_coeff=mo_coeff, ncas=ncas, ncore=ncore)
+
+    eris_for_cas(mc, mo_coeff=mo_coeff, ncas=ncas)
+    
 
 
 
