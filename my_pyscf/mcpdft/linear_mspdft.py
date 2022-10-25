@@ -175,23 +175,15 @@ def get_transformed_h2eff_for_cas(mc, veff2_0, ncore=None, ncas=None):
     return veff2_0.papa[ncore:nocc, :, ncore:nocc, :]
 
 
-def get_linear_pdft_ham(mc, mo_coeff=None, ci=None, ot=None, ncore=None,
-                        ncas=None):
-    if mo_coeff is None:
-        mo_coeff = mc.mo_coeff
+def make_heff_lin(mc, mo_coeff=None, ci=None, ot=None):
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
 
-    if ci is None:
-        ci = mc.ci
+    if ci is None: ci = mc.ci
 
-    if ot is None:
-        ot = ot = mc.otfnal
+    if ot is None: ot = ot = mc.otfnal
     ot.reset(mol=mc.mol)
 
-    if ncore is None:
-        ncore = mc.ncore
-
-    if ncas is None:
-        ncas = mc.ncas
+    ncas = mc.ncas
 
     casdm1s_0, casdm2_0 = weighted_average_densities(mc)
 
@@ -213,49 +205,86 @@ def get_linear_pdft_ham(mc, mo_coeff=None, ci=None, ot=None, ncore=None,
     return heff
 
 
-def get_linear_pdft_ham_offdiag(mc):
-    linear_ham = get_linear_pdft_ham(mc)
-    idx = np.diag_indices_from(linear_ham)
-    linear_ham[idx] = 0.0
-    return linear_ham
+class _QLPDFT:
 
+    def __init__(self, mc):
+        self.__dict__.update(mc.__dict__)
 
-def get_heff_linpdft(mc):
-    linear_ham = get_linear_pdft_ham(mc)
-    print(linear_ham)
-    idx = np.diag_indices_from(linear_ham)
-    linear_ham[idx] = mc.e_states
-    return linear_ham
+    @property
+    def e_states (self):
+        if self._in_mcscf_env:
+            return self.fcisolver.e_states
+        else:
+            return self._e_states
+    @e_states.setter
+    def e_states (self, x):
+        self._e_states = x
 
+    make_heff_lin = make_heff_lin
 
-def pseudo_linpdft(mc):
-    heff = get_heff_linpdft(mc)
-    return linalg.eigh(heff)
+    def get_heff_pdft(self):
+        idx = np.diag_indices_from(self.heff_lin)
+        heff_pdft = self.heff_lin.copy()
+        heff_pdft[idx] = self.hdiag_pdft
+        return heff_pdft
 
+    def get_heff_offdiag(self):
+        idx = np.diag_indices_from(self.heff_lin)
+        heff_offdiag = self.heff_lin.copy()
+        heff_offdiag[idx] = 0.0
+        return heff_offdiag
+
+    def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
+                grids_attr=None, **kwargs):
+        self.otfnal.reset(mol=self.mol)  # scanner mode safety
+        if ci0 is None and isinstance(getattr(self, 'ci', None), list):
+            ci0 = [c.copy() for c in self.ci]
+
+        self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0)
+        self.heff_lin = self.make_heff_lin()
+
+        self.hdiag_pdft = self.compute_pdft_energy_(
+            otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
+
+        self.e_states, self.si_pdft = self._eig_si(self.get_heff_pdft())
+        self.e_tot = np.dot(self.e_states, self.weights)
+
+        return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy)
+
+    def _eig_si (self, heff):
+        return linalg.eigh (heff)
+
+def qlpdft(mc):
+    mcbase_class = mc.__class__
+    class QLPDFT(_QLPDFT, mcbase_class):
+        pass
+
+    return QLPDFT(mc)
 
 if __name__ == "__main__":
     from pyscf import gto, scf, mcscf
     from mrh.my_pyscf import mcpdft
+    from mrh.my_pyscf.fci import csf_solver
 
-    mol = gto.M(atom='''H 0 0 0
+    mol = gto.M(atom='''Li 0 0 0
                         H 1.5 0 0''',
-                basis='STO-3G',
+                basis='6-31G**',
                 verbose=5,
                 spin=0)
     mf = scf.RHF(mol).run()
 
-    mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=1)
-    mc.fix_spin_(ss=0)
+    mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=6)
+    mc.fcisolver = csf_solver (mol, smult = 1)
 
     N_STATES = 2
 
     mc = mc.state_average([1.0 / float(N_STATES), ] * N_STATES)
-    mc.kernel()
 
-    initial_energies = mc.e_states.copy()
-    initial_energies.sort()
-    e_states, si_pdft = pseudo_linpdft(mc)
-    print("FINAL:")
-    print(mc.e_states)
-    print(e_states)
-    print(e_states - initial_energies)
+    test = qlpdft(mc)
+    test.kernel()
+
+    print(test.e_states)
+    print(test.hdiag_pdft)
+    print(test.heff_lin)
+    print(test.e_mcscf)
+
