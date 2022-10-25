@@ -9,26 +9,29 @@ from pyscf.fci import direct_spin1
 from mrh.my_pyscf.mcpdft import _dms
 
 
-def get_expansion_densities(mc, states=None, ci=None):
-    if states is None:
-        n_states = len(getattr(mc, 'e_states', []))
-        states = list(np.arange(n_states))
-
+def get_expansion_densities(mc, ci=None, weights=None, ncas=None):
     if ci is None:
         ci = mc.ci
-
-    casdm1s_alpha = []
-    casdm1s_beta = []
-    casdm2_all = []
     
-    for state in states:
-        casdm1s = mc.make_one_casdm1s(ci, state=state)
-        casdm1s_alpha.append(casdm1s[0])
-        casdm1s_beta.append(casdm1s[1])
-        casdm2_all.append(mc.make_one_casdm2(ci, state=state))
+    if weights is None:
+        weights = mc.fcisolver.weights
 
-    # TODO THIS DOESNT USE THE WEIGHTS. It just takes equal weights.
-    return (np.mean(casdm1s_alpha, axis=0), np.mean(casdm1s_beta, axis=0)), np.mean(casdm2_all, axis=0)
+    if ncas is None:
+        ncas = mc.ncas
+
+    fcisolver, _, nelecas = _dms._get_fcisolver(mc, ci)
+
+    casdm1s_all = np.array([np.array(fcisolver.make_rdm1s(c, ncas, nelecas)) for c in ci])
+    casdm2_all = [fcisolver.make_rdm2(c, ncas, nelecas) for c in ci]
+
+    assert(len(ci) == len(weights)) 
+
+    casdm1s_a_0 = np.einsum("i,i...->...", weights, casdm1s_all[:,0])
+    casdm1s_b_0 = np.einsum("i,i...->...", weights, casdm1s_all[:,1])
+    casdm2_0 = np.einsum("i,i...->...", weights, casdm2_all)
+
+    return (casdm1s_a_0, casdm1s_b_0), casdm2_0
+
 
 def get_transformed_h1eff(mc, veff1_0, veff2_0, casdm1s_0, mo_coeff=None, ncas=None, ncore=None):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
