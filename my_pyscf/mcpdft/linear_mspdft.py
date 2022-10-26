@@ -34,16 +34,13 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
     # There might be a better way to construct all of them, but this should be 
     # more cost-effective then what is currently in the _dms file.
     fcisolver, _, nelecas = _dms._get_fcisolver(mc, ci)
-
-    casdm1s_all = np.array([np.array(fcisolver.make_rdm1s(c, ncas, nelecas))
-                            for c in ci])
+    casdm1s_all = [fcisolver.make_rdm1s(c, ncas, nelecas) for c in ci]
     casdm2_all = [fcisolver.make_rdm2(c, ncas, nelecas) for c in ci]
 
-    casdm1s_a_0 = np.einsum("i,i...->...", weights, casdm1s_all[:, 0])
-    casdm1s_b_0 = np.einsum("i,i...->...", weights, casdm1s_all[:, 1])
-    casdm2_0 = np.einsum("i,i...->...", weights, casdm2_all)
+    casdm1s_0 = np.tensordot(weights, casdm1s_all, axes=1)
+    casdm2_0 = np.tensordot(weights, casdm2_all, axes=1)
 
-    return (casdm1s_a_0, casdm1s_b_0), casdm2_0
+    return tuple(casdm1s_0), casdm2_0
 
 
 def get_effhconst(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
@@ -271,7 +268,7 @@ if __name__ == "__main__":
     mf = scf.RHF(mol).run()
 
     mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=6)
-    mc.fcisolver = csf_solver (mol, smult = 1)
+    #mc.fcisolver = csf_solver (mol, smult = 1)
 
     N_STATES = 2
 
