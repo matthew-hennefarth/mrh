@@ -43,11 +43,10 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
     return tuple(casdm1s_0), casdm2_0
 
 
-def get_effhconst(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
-                 ncore=None):
+def get_effhconst(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None, ncas=None, ncore=None):
     # This should be correct now where we are
     # returning the h_const term in my derivations
-    mo_coeff = mc.mo_coeff
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ncas is None: ncas = mc.ncas
     if ncore is None: ncore = mc.ncore
 
@@ -57,28 +56,24 @@ def get_effhconst(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
     mo_cas = mo_coeff[:, ncore:nocc]
     # Active space Density matrix for the expansion term
     casdm1_0 = casdm1s_0[0] + casdm1s_0[1]
-    # h_nuc + Eot
-    energy_core = mc.energy_nuc() + Eot_0
-    # the 1/2 g_pqrs D_pq D_rs around zeroth states
+    
     dm1s = _dms.casdm1s_to_dm1s(mc, casdm1s=casdm1s_0)
     dm1 = dm1s[0] + dm1s[1]
+    
+    #Coulomb energy for zeroth order state
     vj = mc._scf.get_j(dm=dm1)
-    coulomb = 0.5 * np.tensordot(vj, dm1)
-    energy_core -= coulomb
+    E_j = np.tensordot(vj, dm1) / 2
 
-    if mo_core.size != 0:
-        core_dm = np.dot(mo_core, mo_core.conj().T) * 2
-        energy_core -= veff2_0.energy_core
-        energy_core -= np.einsum('ij,ji', core_dm, veff1_0).real
+    #One-electron on-top potential energy
+    E_veff1 = np.tensordot(veff1_0, dm1)
 
-    veff1_0_cas = reduce(np.dot,
-                         (mo_cas.conj().T, veff1_0, mo_cas)) + veff2_0.vhf_c[
-                                                               ncore:nocc,
-                                                               ncore:nocc]
-    energy_core -= np.einsum('vw,vw', veff1_0_cas, casdm1_0)
-
-    veff2_0_cas = mc.get_h2eff_lin(veff2_0)
-    energy_core -= np.einsum('vwxy,vwxy', veff2_0_cas, casdm2_0)
+    # Deal with 2-electron on-top potential energy
+    E_veff2 = veff2_0.energy_core
+    E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
+    E_veff2 += np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
+    
+    # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - v_pqrs d_pqrs
+    energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
     return energy_core
 
 
@@ -263,12 +258,12 @@ if __name__ == "__main__":
     mol = gto.M(atom='''Li 0 0 0
                         H 1.5 0 0''',
                 basis='6-31G**',
-                verbose=5,
+                verbose=1,
                 spin=0)
     mf = scf.RHF(mol).run()
 
     mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=6)
-    #mc.fcisolver = csf_solver (mol, smult = 1)
+    mc.fcisolver = csf_solver (mol, smult = 1)
 
     N_STATES = 2
 
