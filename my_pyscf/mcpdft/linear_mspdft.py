@@ -72,7 +72,7 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None, ot=N
     E_veff2 = veff2_0.energy_core
     E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
     E_veff2 += np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
-   
+  
     # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - v_pqrs d_pqrs
     energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
     return energy_core
@@ -113,7 +113,7 @@ def transformed_h1e_for_cas(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0,
 
     Returns:
         A tuple, the first is the effective one-electron linear PDFT Hamiltonian
-        defined in CAS space, the second is the core energy.
+        defined in CAS space, the second is the modified core energy.
     '''
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ncas is None: ncas = mc.ncas
@@ -249,26 +249,30 @@ if __name__ == "__main__":
     from mrh.my_pyscf import mcpdft
     from mrh.my_pyscf.fci import csf_solver
 
-    mol = gto.M(atom='''Li 0 0 0
-                        H 1.5 0 0''',
-                basis='STO-3G',
+    mol = gto.M(atom='''H 0 0 0
+                        H 10 0 0''',
+                basis='aug-cc-pvdz',
                 verbose=1,
-                spin=0)
+                spin=0,
+                unit="AU",
+                symmetry=True)
     mf = scf.RHF(mol).run()
 
-    mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=6)
+    mc = mcpdft.CASSCF(mf, 'tPBE', 4, 2, grids_level=6)
     mc.fcisolver = csf_solver (mol, smult = 1)
 
-    N_STATES = 2
+    N_STATES = 3
 
     mc = mc.state_average([1.0 / float(N_STATES), ] * N_STATES)
 
+
+
     test = qlpdft(mc)
     sc = test.as_scanner()
-    print(sc(mol))
+    sc(mol)
+
     print(sc.e_states)
     print(sc.hdiag_pdft)
-    #test.kernel()
 
     #print(test.e_states)
     #print(test.hdiag_pdft)
