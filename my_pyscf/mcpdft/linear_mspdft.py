@@ -46,7 +46,7 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
     return (casdm1s_a_0, casdm1s_b_0), casdm2_0
 
 
-def get_effhcore(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
+def get_effhconst(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
                  ncore=None):
     # This should be correct now where we are
     # returning the h_const term in my derivations
@@ -60,10 +60,8 @@ def get_effhcore(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
     mo_cas = mo_coeff[:, ncore:nocc]
     # Active space Density matrix for the expansion term
     casdm1_0 = casdm1s_0[0] + casdm1s_0[1]
-
     # h_nuc + Eot
     energy_core = mc.energy_nuc() + Eot_0
-
     # the 1/2 g_pqrs D_pq D_rs around zeroth states
     dm1s = _dms.casdm1s_to_dm1s(mc, casdm1s=casdm1s_0)
     dm1 = dm1s[0] + dm1s[1]
@@ -82,9 +80,8 @@ def get_effhcore(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0, ncas=None,
                                                                ncore:nocc]
     energy_core -= np.einsum('vw,vw', veff1_0_cas, casdm1_0)
 
-    veff2_0_cas = get_transformed_h2eff_for_cas(mc, veff2_0)
+    veff2_0_cas = mc.get_h2eff_lin(veff2_0)
     energy_core -= np.einsum('vwxy,vwxy', veff2_0_cas, casdm2_0)
-
     return energy_core
 
 
@@ -125,13 +122,11 @@ def transformed_h1e_for_cas(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0,
         A tuple, the first is the effective one-electron linear PDFT Hamiltonian
         defined in CAS space, the second is the core energy.
     '''
-
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ncas is None: ncas = mc.ncas
     if ncore is None: ncore = mc.ncore
 
     nocc = ncore + ncas
-
     mo_core = mo_coeff[:, :ncore]
     mo_cas = mo_coeff[:, ncore:nocc]
 
@@ -139,7 +134,7 @@ def transformed_h1e_for_cas(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0,
     casdm1_0 = casdm1s_0[0] + casdm1s_0[1]
 
     hcore_eff = mc.get_hcore() + veff1_0
-    energy_core = get_effhcore(mc, Eot_0, veff1_0, veff2_0, casdm1s_0,
+    energy_core = mc.get_effhconst(Eot_0, veff1_0, veff2_0, casdm1s_0,
                                casdm2_0)
 
     # Gets the 2 electron integrals in MO
@@ -170,38 +165,33 @@ def transformed_h1e_for_cas(mc, Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0,
 def get_transformed_h2eff_for_cas(mc, veff2_0, ncore=None, ncas=None):
     if ncore is None: ncore = mc.ncore
     if ncas is None: ncas = mc.ncas
-
     nocc = ncore + ncas
+    
     return veff2_0.papa[ncore:nocc, :, ncore:nocc, :]
 
 
 def make_heff_lin(mc, mo_coeff=None, ci=None, ot=None):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
-
     if ci is None: ci = mc.ci
-
-    if ot is None: ot = ot = mc.otfnal
+    if ot is None: ot = mc.otfnal
     ot.reset(mol=mc.mol)
-
+    
     ncas = mc.ncas
-
-    casdm1s_0, casdm2_0 = weighted_average_densities(mc)
+    casdm1s_0, casdm2_0 = mc.get_casdm12_0()
 
     Eot_0 = mc.energy_dft(ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s_0,
                           casdm2=casdm2_0)
     veff1_0, veff2_0 = mc.get_pdft_veff(mo=mo_coeff, casdm1s=casdm1s_0,
                                         casdm2=casdm2_0)
 
-    h1, h0 = transformed_h1e_for_cas(mc, Eot_0, veff1_0, veff2_0, casdm1s_0,
-                                     casdm2_0)
-
-    h2 = get_transformed_h2eff_for_cas(mc, veff2_0)
-
+    h1, h0 = mc.get_h1eff_lin(Eot_0, veff1_0, veff2_0, casdm1s_0, casdm2_0)
+    h2 = mc.get_h2eff_lin(veff2_0)
     h2eff = direct_spin1.absorb_h1e(h1, h2, ncas, mc.nelecas, 0.5)
     hc_all = [direct_spin1.contract_2e(h2eff, c, ncas, mc.nelecas) for c in ci]
     heff = np.tensordot(ci, hc_all, axes=((1, 2), (1, 2)))
     idx = np.diag_indices_from(heff)
     heff[idx] += h0
+    
     return heff
 
 
@@ -216,11 +206,16 @@ class _QLPDFT:
             return self.fcisolver.e_states
         else:
             return self._e_states
+    
     @e_states.setter
     def e_states (self, x):
         self._e_states = x
 
     make_heff_lin = make_heff_lin
+    get_effhconst = get_effhconst
+    get_h1eff_lin = transformed_h1e_for_cas
+    get_h2eff_lin = get_transformed_h2eff_for_cas
+    get_casdm12_0 = weighted_average_densities
 
     def get_heff_pdft(self):
         idx = np.diag_indices_from(self.heff_lin)
@@ -254,12 +249,14 @@ class _QLPDFT:
     def _eig_si (self, heff):
         return linalg.eigh (heff)
 
+
 def qlpdft(mc):
     mcbase_class = mc.__class__
     class QLPDFT(_QLPDFT, mcbase_class):
         pass
 
     return QLPDFT(mc)
+
 
 if __name__ == "__main__":
     from pyscf import gto, scf, mcscf
@@ -281,10 +278,15 @@ if __name__ == "__main__":
     mc = mc.state_average([1.0 / float(N_STATES), ] * N_STATES)
 
     test = qlpdft(mc)
-    test.kernel()
+    sc = test.as_scanner()
+    print(sc(mol))
+    print(sc.e_states)
+    print(sc.hdiag_pdft)
+    #test.kernel()
 
-    print(test.e_states)
-    print(test.hdiag_pdft)
-    print(test.heff_lin)
-    print(test.e_mcscf)
+    #print(test.e_states)
+    #print(test.hdiag_pdft)
+    #print(test.heff_lin)
+    #print(test.e_mcscf)
+
 
