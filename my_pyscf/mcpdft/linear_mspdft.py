@@ -44,6 +44,42 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
 
 
 def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None, ot=None, ncas=None, ncore=None):
+    '''
+    Args:
+        mc : instance of class _PDFT
+        
+        veff1_0 : ndarray with shape (nao, nao)
+            1-body effective potential in the AO basis.
+            Should not include classical Coulomb potential term.
+            Generated from expansion density
+
+        veff2_0 : pyscf.mcscf.mc_ao2mo._ERIS instance
+            Relevant 2-body effective potential in the MO basis.
+            Generated from expansion density.
+
+        casdm1s_0 : ndarray of shape (2, ncas, ncas)
+            Spin-separated 1-RDM in the active space generated 
+            from expansion density.
+
+        casdm2_0 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Spin-summed 2-RDM in the active space generated
+            from expansion density.
+
+        mo_coeff : ndarray of shape (nao, nmo)
+            A full set of molecular orbital coefficients. Taken from
+            self if not provided.
+
+        ot : an instance of on-top functional class - see otfnal.py
+
+        ncas : float
+            Number of active space MOs
+
+        ncore: float
+            Number of core MOs
+
+    Returns:
+        Constant term h_const for the expansion term.
+    '''
     # This should be correct now where we are
     # returning the h_const term in my derivations
     if mo_coeff is None: mo_coeff = mc.mo_coeff
@@ -72,7 +108,7 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None, ot=N
     E_veff2 = veff2_0.energy_core
     E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
     E_veff2 += np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
-  
+
     # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - v_pqrs d_pqrs
     energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
     return energy_core
@@ -177,7 +213,6 @@ def make_heff_lin(mc, mo_coeff=None, ci=None, ot=None):
     idx = np.diag_indices_from(heff)
     heff[idx] += h0
    
-    print(heff)
     return heff
 
 
@@ -215,6 +250,11 @@ class _QLPDFT:
         heff_offdiag[idx] = 0.0
         return heff_offdiag
 
+    def get_heff_diag(self):
+        idx = np.diag_indices_from(self.heff_lin)
+        heff_diag = self.heff_lin.copy()
+        return heff_diag[idx]
+
     def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
                 grids_attr=None, **kwargs):
         self.otfnal.reset(mol=self.mol)  # scanner mode safety
@@ -250,33 +290,39 @@ if __name__ == "__main__":
     from mrh.my_pyscf.fci import csf_solver
 
     mol = gto.M(atom='''H 0 0 0
-                        H 10 0 0''',
-                basis='aug-cc-pvdz',
-                verbose=1,
-                spin=0,
-                unit="AU",
-                symmetry=True)
+                       H 1.5 0 0''',
+               basis='cc-pvtz',
+               verbose=1,
+               spin=0,
+               unit="AU",
+               symmetry=True)
+    
     mf = scf.RHF(mol).run()
 
-    mc = mcpdft.CASSCF(mf, 'tPBE', 4, 2, grids_level=6)
+    mc = mcpdft.CASSCF(mf, 'tPBE', 2, 2, grids_level=6)
     mc.fcisolver = csf_solver (mol, smult = 1)
 
-    N_STATES = 3
+    N_STATES = 2
 
+    cms = mc.multi_state([1.0/float(N_STATES),]*N_STATES, 'cms')
+    
     mc = mc.state_average([1.0 / float(N_STATES), ] * N_STATES)
 
 
 
-    test = qlpdft(mc)
-    sc = test.as_scanner()
-    sc(mol)
+    sc = qlpdft(mc)
+    cms.kernel()
+    sc.kernel()
 
-    print(sc.e_states)
     print(sc.hdiag_pdft)
-
-    #print(test.e_states)
-    #print(test.hdiag_pdft)
-    #print(test.heff_lin)
-    #print(test.e_mcscf)
+    print(sc.e_mcscf[1]-sc.e_mcscf[0])
+    print(sc.e_states[1]-sc.e_states[0])
+    print(sc.hdiag_pdft[1]-sc.hdiag_pdft[0])
+    print(cms.e_states[1]-cms.e_states[0])
+    
+    print(f"E_MCSCF: {sc.e_mcscf}")
+    print(f"E_QLPDFT: {sc.e_states}")
+    print(f"E_MCPDFT: {sc.hdiag_pdft}")
+    print(f"CMS-PDFT: {cms.e_states}")
 
 
