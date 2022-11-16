@@ -452,6 +452,7 @@ class _QLPDFT:
     def _eig_si(self, heff):
         return linalg.eigh(heff)
 
+
 def qlpdft(mc):
     mcbase_class = mc.__class__
 
