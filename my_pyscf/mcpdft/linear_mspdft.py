@@ -128,7 +128,7 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None,
     E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
     E_veff2 += 0.5*np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
 
-    # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - v_pqrs d_pqrs
+    # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - 1/2 v_pqrs d_pqrs
     energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
     return energy_core
 
@@ -423,7 +423,8 @@ class _QLPDFT:
             self.mo_coeff, self.mo_energy)
 
     def hybrid_kernel(self, lam=0):
-        self.heff_hyb = (1.0-lam) * self.get_heff_pdft()
+        #self.heff_hyb = (1.0-lam) * self.get_heff_pdft()
+        self.heff_hyb = (1.0-lam) * self.heff_lin
         idx = np.diag_indices_from(self.heff_hyb)
         self.heff_hyb[idx] += lam * self.e_mcscf
         self.e_hyb_states, self.si_hyb_pdft = self._eig_si(self.heff_hyb)
