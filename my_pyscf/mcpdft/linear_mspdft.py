@@ -126,7 +126,7 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None,
     # Deal with 2-electron on-top potential energy
     E_veff2 = veff2_0.energy_core
     E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
-    E_veff2 += np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
+    E_veff2 += 0.5*np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
 
     # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - v_pqrs d_pqrs
     energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
