@@ -422,6 +422,16 @@ class _QLPDFT:
             self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
 
+    def hybrid_kernel(self, lam=0):
+        self.heff_hyb = (1.0-lam) * self.get_heff_pdft()
+        idx = np.diag_indices_from(self.heff_hyb)
+        self.heff_hyb[idx] += lam * self.e_mcscf
+        self.e_hyb_states, self.si_hyb_pdft = self._eig_si(self.heff_hyb)
+    
+        return self.e_hyb_states, self.si_hyb_pdft
+
+        
+
     def _finalize_ql(self):
         log = logger.Logger(self.stdout, self.verbose)
         nroots = len(self.e_states)
