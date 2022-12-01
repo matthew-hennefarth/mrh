@@ -42,7 +42,7 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
     if ncas is None: 
         ncas = mc.ncas
 
-    # There might be a better way to construct all of them, but this should be 
+    # There might be a better way to construct all of them, but this should be
     # more cost-effective than what is currently in the _dms file.
     fcisolver, _, nelecas = _dms._get_fcisolver(mc, ci)
     casdm1s_all = [fcisolver.make_rdm1s(c, ncas, nelecas) for c in ci]
@@ -464,7 +464,7 @@ def qlpdft(mc):
 
 
 if __name__ == "__main__":
-    from pyscf import gto, scf, mcscf
+    from pyscf import gto, scf
     from mrh.my_pyscf import mcpdft
     from mrh.my_pyscf.fci import csf_solver
 
