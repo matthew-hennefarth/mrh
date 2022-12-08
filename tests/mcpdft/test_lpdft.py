@@ -5,11 +5,11 @@ from mrh.my_pyscf.mcpdft import linear_mspdft
 import unittest
 
 
-def get_lih (r):
+def get_lih (r, functional='ftLDA,VWN3'):
     mol = gto.M (atom='Li 0 0 0\nH {} 0 0'.format (r), basis='sto3g',
                  output='/dev/null', verbose=0)
     mf = scf.RHF (mol).run ()
-    mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
+    mc = mcpdft.CASSCF (mf, functional, 2, 2, grids_level=1)
     mc.fix_spin_(ss=0)
     n_states = 2
     weights = [1.0/float(n_states), ] * n_states
@@ -33,7 +33,7 @@ class KnownValues(unittest.TestCase):
         for first, second in zip(first_list, second_list):
             self.assertAlmostEqual(first, second, expected)
 
-    def test_lih_adiabat (self):
+    def test_lih_adiabat(self):
         e_mcscf_avg = np.dot (mc.e_mcscf, mc.weights)
         hcoup = abs(mc.heff_lin[1,0])
         hdiag = [mc.heff_lin[0,0], mc.heff_lin[1,1]] 
