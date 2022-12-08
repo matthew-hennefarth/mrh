@@ -12,6 +12,7 @@ from pyscf.fci import direct_spin1
 from mrh.my_pyscf.mcpdft import _dms
 
 
+# TODO once, PR is merged with mrh this function will exist in the _dms file instead
 def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
     '''Compute the weighted average 1- and 2-electron CAS densities. 
     1-electron CAS is returned as spin-separated.
@@ -33,14 +34,9 @@ def weighted_average_densities(mc, ci=None, weights=None, ncas=None):
         A tuple, the first is casdm1s and the second is casdm2 where they are 
         weighted averages where the weights are given.
     '''
-    if ci is None:
-        ci = mc.ci
-    
-    if weights is None: 
-        weights = mc.weights
-    
-    if ncas is None: 
-        ncas = mc.ncas
+    if ci is None: ci = mc.ci
+    if weights is None: weights = mc.weights
+    if ncas is None: ncas = mc.ncas
 
     # There might be a better way to construct all of them, but this should be
     # more cost-effective than what is currently in the _dms file.
@@ -93,17 +89,10 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None,
     Returns:
         Constant term h_const for the expansion term.
     '''
-    if mo_coeff is None:
-        mo_coeff = mc.mo_coeff
-
-    if ot is None:
-        ot = mc.otfnal
-
-    if ncas is None:
-        ncas = mc.ncas
-
-    if ncore is None:
-        ncore = mc.ncore
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ot is None: ot = mc.otfnal
+    if ncas is None: ncas = mc.ncas
+    if ncore is None: ncore = mc.ncore
 
     nocc = ncore + ncas
 
@@ -113,23 +102,23 @@ def get_effhconst(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0, mo_coeff=None,
     dm1 = dm1s[0] + dm1s[1]
 
     # Eot for zeroth order state
-    Eot_0 = mc.energy_dft(ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s_0,
+    e_ot_0 = mc.energy_dft(ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s_0,
                           casdm2=casdm2_0)
 
     # Coulomb energy for zeroth order state
     vj = mc._scf.get_j(dm=dm1)
-    E_j = np.tensordot(vj, dm1) / 2
+    e_j = np.tensordot(vj, dm1) / 2
 
     # One-electron on-top potential energy
-    E_veff1 = np.tensordot(veff1_0, dm1)
+    e_veff1 = np.tensordot(veff1_0, dm1)
 
     # Deal with 2-electron on-top potential energy
-    E_veff2 = veff2_0.energy_core
-    E_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
-    E_veff2 += 0.5*np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
+    e_veff2 = veff2_0.energy_core
+    e_veff2 += np.tensordot(veff2_0.vhf_c[ncore:nocc, ncore:nocc], casdm1_0)
+    e_veff2 += 0.5*np.tensordot(mc.get_h2eff_lin(veff2_0), casdm2_0, axes=4)
 
     # h_nuc + Eot - 1/2 g_pqrs D_pq D_rs - V_pq D_pq - 1/2 v_pqrs d_pqrs
-    energy_core = mc.energy_nuc() + Eot_0 - E_j - E_veff1 - E_veff2
+    energy_core = mc.energy_nuc() + e_ot_0 - e_j - e_veff1 - e_veff2
     return energy_core
 
 
@@ -171,17 +160,10 @@ def transformed_h1e_for_cas(mc, veff1_0, veff2_0, casdm1s_0, casdm2_0,
         A tuple, the first is the effective one-electron linear PDFT Hamiltonian
         defined in CAS space, the second is the modified core energy.
     '''
-    if mo_coeff is None:
-        mo_coeff = mc.mo_coeff
-
-    if ncas is None:
-        ncas = mc.ncas
-
-    if ncore is None:
-        ncore = mc.ncore
-
-    if ot is None:
-        ot = mc.otfnal
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ncas is None: ncas = mc.ncas
+    if ncore is None: ncore = mc.ncore
+    if ot is None: ot = mc.otfnal
 
     nocc = ncore + ncas
     mo_core = mo_coeff[:, :ncore]
@@ -226,11 +208,8 @@ def get_transformed_h2eff_for_cas(mc, veff2_0, ncore=None, ncas=None):
     Returns:
         ndarray of shape (ncas,ncas,ncas,ncas) which contain v_vwxy
     '''
-    if ncore is None:
-        ncore = mc.ncore
-
-    if ncas is None:
-        ncas = mc.ncas
+    if ncore is None: ncore = mc.ncore
+    if ncas is None: ncas = mc.ncas
 
     nocc = ncore + ncas
 
@@ -256,16 +235,19 @@ def make_heff_lin_(mc, mo_coeff=None, ci=None, ot=None):
             hamiltonian in the basis provided by the CI vectors.
     '''
 
-    if mo_coeff is None:
-        mo_coeff = mc.mo_coeff
-
-    if ci is None:
-        ci = mc.ci
-
-    if ot is None:
-        ot = mc.otfnal
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if ot is None: ot = mc.otfnal
 
     ot.reset(mol=mc.mol)
+
+    spin = abs(mc.nelecas[0]-mc.nelecas[1])
+    omega, _, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
+    if abs(omega) > 1e-11:
+        raise NotImplementedError("range-separated on-top functionals")
+
+    if hyb[0] != hyb[1]:
+        raise NotImplementedError("different amounts of exchange and correlation")
 
     ncas = mc.ncas
     casdm1s_0, casdm2_0 = mc.get_casdm12_0()
@@ -311,6 +293,11 @@ class _QLPDFT:
 
     def __init__(self, mc):
         self.__dict__.update(mc.__dict__)
+        keys = set(('heff_lin', 'hdiag_pdft', 'si_pdft'))
+        self.heff_lin = None
+        self.hdiag_pdft = None
+        self.si_pdft = None
+        self._keys = set((self.__dict__.keys())).union(keys)
 
     @property
     def e_states(self):
@@ -355,8 +342,8 @@ class _QLPDFT:
         heff_pdft[idx] = self.hdiag_pdft
         return heff_pdft
 
-    def get_heff_offdiag(self):
-        '''Off-diagonal elements of the QL-PDFT effective Hamiltonian matrix
+    def get_hlin_offdiag(self):
+        '''Off-diagonal elements of the linear PDFT Hamiltonian matrix
             ( 0          H_10*^lin  ...)
             ( H_10^lin   0          ...)
             ( ...        ...        ...)
@@ -371,7 +358,7 @@ class _QLPDFT:
         heff_offdiag[idx] = 0.0
         return heff_offdiag
 
-    def get_heff_diag(self):
+    def get_hlin_diag(self):
         '''Diagonal elements of the linear PDFT Hamiltonian matrix
             (H_00^lin, H_11^lin, H_22^lin, ...)
 
