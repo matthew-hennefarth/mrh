@@ -210,9 +210,7 @@ def get_transformed_h2eff_for_cas(mc, veff2_0, ncore=None, ncas=None):
     '''
     if ncore is None: ncore = mc.ncore
     if ncas is None: ncas = mc.ncas
-
     nocc = ncore + ncas
-
     return veff2_0.papa[ncore:nocc, :, ncore:nocc, :]
 
 
@@ -247,9 +245,9 @@ def make_heff_lin_(mc, mo_coeff=None, ci=None, ot=None):
     omega, _, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     if abs(omega) > 1e-11:
         raise NotImplementedError("range-separated on-top functionals")
-    if abs(hyb[0]) > 1e-11 or abs(hyb[1]) > 1e-11:
-        raise NotImplementedError("on-top potentials for hybrid functionals")
-
+    if abs(hyb[0] - hyb[1]) > 1e-11:
+        raise NotImplementedError("hybrid functionals with different exchange, correlations components")
+    
     ncas = mc.ncas
     casdm1s_0, casdm2_0 = mc.get_casdm12_0()
 
@@ -267,8 +265,9 @@ def make_heff_lin_(mc, mo_coeff=None, ci=None, ot=None):
 
     return heff
 
+
 def kernel(mc, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
-               grids_attr=None, verbose=logger.NOTE):
+               grids_attr=None, verbose=logger.NOTE, quasi=False):
     if otxc is None:
         otxc = mc.otfnal
 
@@ -278,26 +277,31 @@ def kernel(mc, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
     log = logger.new_logger(mc, verbose)
     mc.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0)
     mc.heff_lin = mc.make_heff_lin_()
+    if quasi:
+        log.note("Replacing diagonal element of linear PDFT Hamiltonian with MC-PDFT energies")
+        mc.hdiag_pdft = mc.compute_pdft_energy_(
+            otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
+        mc.e_states, mc.si_pdft = mc._eig_si(mc.get_heff_pdft())
 
-    mc.hdiag_pdft = mc.compute_pdft_energy_(
-        otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
+    else:
+        mc.e_states, mc.si_pdft = mc._eig_si(mc.heff_lin)
 
-    mc.e_states, mc.si_pdft = mc._eig_si(mc.get_heff_pdft())
     mc.e_tot = np.dot(mc.e_states, mc.weights)
 
     return (
-        mc.e_tot, mc.e_ot, mc.e_mcscf, mc.e_cas, mc.ci,
+        mc.e_tot, mc.e_mcscf, mc.e_cas, mc.ci,
         mc.mo_coeff, mc.mo_energy)
 
 
-class _QLPDFT:
+class _LMSPDFT:
 
-    def __init__(self, mc):
+    def __init__(self, mc, quasi=False):
         self.__dict__.update(mc.__dict__)
-        keys = set(('heff_lin', 'hdiag_pdft', 'si_pdft'))
+        keys = set(('heff_lin', 'hdiag_pdft', 'si_pdft', 'quasi'))
         self.heff_lin = None
         self.hdiag_pdft = None
         self.si_pdft = None
+        self.quasi = quasi
         self._keys = set((self.__dict__.keys())).union(keys)
 
     @property
@@ -374,12 +378,11 @@ class _QLPDFT:
         return heff_diag[idx]
 
     def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
-               grids_attr=None, verbose=None, **kwargs):
+               grids_attr=None, verbose=None, quasi=None):
         '''
         Returns:
-            7 elements, they are
+            6 elements, they are
             total energy,
-            on-top energy,
             the MCSCF energies,
             the active space CI energy,
             the active space FCI wave function coefficients,
@@ -387,28 +390,32 @@ class _QLPDFT:
             the MCSCF canonical orbital energies
 
         They are attributes of the QLPDFT object, which can be accessed by
-        .e_tot, .e_ot, .e_mcscf, .e_cas, .ci, .mo_coeff, .mo_energy
+        .e_tot, .e_mcscf, .e_cas, .ci, .mo_coeff, .mo_energy
         '''
         self.otfnal.reset(mol=self.mol)  # scanner mode safety
-        if otxc is None:
-            otxc = self.otfnal
-
-        if mo_coeff is None:
+        if otxc is None: otxc = self.otfnal
+        if mo_coeff is None: 
             mo_coeff = self.mo_coeff
-
         else:
             self.mo_coeff = mo_coeff
+
+        if quasi is None:
+            quasi = self.quasi
+        
+        else:
+            self.quasi = quasi
 
         log = logger.new_logger(self, verbose)
 
         if ci0 is None and isinstance(getattr(self, 'ci', None), list):
             ci0 = [c.copy() for c in self.ci]
 
-        kernel(self, mo_coeff, ci0, otxc, grids_level, grids_attr, verbose=log)
+        kernel(self, mo_coeff, ci0, otxc, grids_level, grids_attr, verbose=log, quasi=quasi)
         self._finalize_ql()
         return (
-            self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
+            self.e_tot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
+
 
     def hybrid_kernel(self, lam=0):
         #self.heff_hyb = (1.0-lam) * self.get_heff_pdft()
@@ -418,7 +425,6 @@ class _QLPDFT:
         self.e_hyb_states, self.si_hyb_pdft = self._eig_si(self.heff_hyb)
     
         return self.e_hyb_states, self.si_hyb_pdft
-
         
 
     def _finalize_ql(self):
@@ -442,13 +448,13 @@ class _QLPDFT:
         return linalg.eigh(heff)
 
 
-def qlpdft(mc):
+def lmspdft(mc, quasi=False):
     mcbase_class = mc.__class__
 
-    class QLPDFT(_QLPDFT, mcbase_class):
+    class LMSPDFT(_LMSPDFT, mcbase_class):
         pass
 
-    return QLPDFT(mc)
+    return LMSPDFT(mc, quasi=quasi)
 
 
 if __name__ == "__main__":
