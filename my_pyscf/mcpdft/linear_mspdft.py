@@ -241,13 +241,14 @@ def make_heff_lin_(mc, mo_coeff=None, ci=None, ot=None):
 
     ot.reset(mol=mc.mol)
 
+    # This is some error checking since we cannot actually use hybrid functionals 
+    # to explicitly construct the heff YET!
     spin = abs(mc.nelecas[0]-mc.nelecas[1])
     omega, _, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     if abs(omega) > 1e-11:
         raise NotImplementedError("range-separated on-top functionals")
-
-    if hyb[0] != hyb[1]:
-        raise NotImplementedError("different amounts of exchange and correlation")
+    if abs(hyb[0]) > 1e-11 or abs(hyb[1]) > 1e-11:
+        raise NotImplementedError("on-top potentials for hybrid functionals")
 
     ncas = mc.ncas
     casdm1s_0, casdm2_0 = mc.get_casdm12_0()
